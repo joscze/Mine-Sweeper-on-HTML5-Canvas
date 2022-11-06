@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mine Sweeper</title>
+<style>
+
+body{
+	display:flex;
+	align-items:center;
+	justify-content:center;
+}
+
+canvas{
+	margin:50px auto;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app" style="color: rgba(255,204,51,1)"></div>
+
+</body>
+<script src="js/minesweeper.js"></script>
+</html>
