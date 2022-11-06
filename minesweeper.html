@@ -1,0 +1,342 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mine Sweeper</title>
+<style>
+
+body{
+	display:flex;
+	align-items:center;
+	justify-content:center;
+}
+
+canvas{
+	margin:50px auto;
+}
+</style>
+</head>
+
+<body>
+
+<div class="app" style="color: rgba(255,204,51,1)"></div>
+
+</body>
+  <script>
+const app = document.querySelector('.app');
+const badBombImg = new Image();
+badBombImg.src = 'sprites/bomb bad.fw.png';
+const redFlagImg = new Image();
+redFlagImg.src = 'sprites/redflaf.fw.png';
+const explosionSound = new Audio();
+explosionSound.src = 'audio/lose_minesweeper.wav';
+const winSound = new Audio();
+winSound.src = 'audio/TADA.WAV';
+
+class Minesweeper{
+	constructor(dom, width, height, mineCount, cellSize){
+		this.canvas = null; 
+		this.ctx = null;
+		this.dom = dom; 
+		this.width = width; 
+		this.height = height; 
+		this.mineCount = mineCount;
+		this.cellSize = cellSize;
+		this.cols = null; 
+		this.rows = null;
+		this.mineField = [];
+		this.gameLose = false;
+		this.gameWin = false;
+		this.remainingCells = false;
+		this.clickSound = new Audio();
+		this.clickSound.src = 'audio/click.wav';
+		this.setUp();
+	}
+	
+	setUp(){
+		this.canvas = document.createElement('canvas');
+		this.canvas.style.border = '1px solid #000';
+		this.canvas.style.cursor = 'pointer';
+		this.ctx = this.canvas.getContext('2d');
+		this.canvas.width = this.width;
+		this.canvas.height = this.height;
+		this.cols = (this.width / this.cellSize);
+		this.rows = (this.height / this.cellSize);
+		this.dom.appendChild(this.canvas);
+		
+		this.createMineField();
+		this.placeMines();
+		this.countNeighboringMines();
+		this.draw();
+		
+		const rect = this.canvas.getBoundingClientRect();
+		
+		this.canvas.addEventListener('click', e =>{
+			//GETTING THE EXACT MOUSE COORDINATES 
+			const clientX = e.clientX - rect.left;
+			const clientY = e.clientY - rect.top;
+			const cell = this.getCellByXandY(clientY, clientX);
+			//IF THE CELL IS REVEALED IT WILL RETURN NOTHING
+			if(cell.isRevealed){
+				return;//<- IT WILL STOP EXECUTING
+			}else{
+				this.clickSound.play();
+				cell.isRevealed = true;	
+			}
+			
+			if(cell.flagged){
+				cell.flagged = false;
+				cell.isRevealed = false;
+			}
+			//REDUCING THE AMOUNT OF CELLS AVAILABLE TO REVEAL
+			this.remainingCells--;
+      
+			//REVEALING MULTIPLE CELLS AT ONCE
+			this.floodFill(cell);
+      
+			//IN CASE THE CELL HAPPENS TO BE A MIN IT WILL BE GAME OVER
+			if(cell.isMine && !cell.flagged){
+				this.gameLose = true;
+				explosionSound.play();
+				alert('YOU LOSE');
+				this.gameOver();
+				return;
+			}
+      
+      //CHECKING IF THE PLAYER WON THE GAME
+			this.checkForWin();
+      
+      //REDRAWING ONCE AGAIN THE BOARD IN CASE ANY PREVIOUS ACTION WAS TAKEN BY CLICKING ON ANY CELL
+			this.draw();
+		},false);
+    
+		//RIGHT CLICK ON ANY REVEALED CELL IN ORDER TO FLAG IT AS POSSIBLE MINE
+		this.canvas.addEventListener('contextmenu', e =>{
+			e.preventDefault();
+			
+			const clientX = e.clientX - rect.left;
+			const clientY = e.clientY - rect.top;
+			const cell = this.getCellByXandY(clientY, clientX);
+			if(!cell.flagged && !cell.isRevealed){
+				cell.flagged = true;
+			}else if(cell.flagged && !cell.isRevealed){
+				cell.flagged = false;
+			}else if(cell.isRevealed){
+				return;
+			}
+			this.draw();
+		}, false);
+	}
+	
+	getCellByXandY(yPos, xPos){
+    //MEASURING THE X COORDINATE OF THE CELL THEN DIVIDING ITS SIZE (WIDTH OR HEIGHT) 
+    //IT WILL GIVE ME AS A RESULT THE VERY CENTER OF THE CELL
+		let y_clicked = Math.floor(yPos / this.cellSize);
+		let x_clicked = Math.floor(xPos / this.cellSize);
+    //GETTING THE EXACT CELL WE CLICKED ON THE MULTI DIMENSIONAL ARRAY
+		this.mineField[y_clicked][x_clicked];
+	}
+	
+	createMineField(){
+    //WE CLEAN THE ARRAY IN CASE IT'S NOT CLEAN 
+		this.mineField = [];
+    //WE NEED TO LOOP HORIZONTALY SINCE WE COUNT FROM ZERO TO THE QUANTITY OF ROWS WE GOT AS A RESULT BASED ON THE CALCULATION
+		for(let y = 0; y < this.rows; y++){
+      //WE CREATE THE MULTI DIMENSIONAL ARRAY
+			this.mineField[y] = [];
+      //WE SET FOR EACH ROW AN ESPECIFIC DATA OF CELLS FOR EXAMPLE LOCATION ON THE CANVAS, SIZE AND OTHER ATTRIBUTES
+			for(let x = 0; x < this.cols; x++){
+        //FOR EACH CELL (Y X) WILL HAVE AN UNIQUE CLASS PROPIERTY
+				this.mineField[y][x] = new Cell(x, y, this.cellSize);
+			}
+		}
+	}
+	
+	checkForWin(){
+    //CHECKING IF THERE'S ANY UNREVEALED CELL AFTER FLAPPING THE MULTI DIMENSIONAL ARRAY 
+    //WE CHECK IF THE CELL IS NOT A MINE (FLAT METHOD WILL ONLY CONVERT THE ARRAY IN ONE LEVEL ARRAY)
+		this.remainingCells = this.mineField.flat().filter(cell=>!cell.isMine && !cell.isRevealed);
+		if(this.remainingCells == 0){
+			this.gameWin = true;
+			winSound.play();
+			this.gameOverWin();
+			alert('YOU WIN');
+		}
+	}
+	
+	floodFill(cell){
+    //
+		if(cell){
+      //MAKING SURE THERE'S NO ANY MINE AROUND THE CELL WE CLICKED ON 
+      //WE NEED TO CHECK IF THE NEIGHBORING MINE IS NOT A MINE AND IT'S NOT FLAGGED EITHER 
+			if(cell.neighbouringMineCount == 0){
+				if(cell.x - 1 >= 0){//LEFT CHECKING THE LEFT NEIGHBORING CELL BY SUBSTRACTING ONE  
+					const lc = this.mineField[cell.y][cell.x - 1];
+					if(!lc.isRevealed && lc.neighbouringMineCount == 0 && !lc.flagged){
+						lc.isRevealed = true;
+						this.floodFill(lc);
+					}
+				}
+				
+				if(cell.x + 1 < this.cols){//RIGHT //RIGHT CHECKING THE LEFT NEIGHBORING CELL BY ADDING ONE  
+					const rc = this.mineField[cell.y][cell.x + 1];
+					if(!rc.isRevealed && rc.neighbouringMineCount == 0 && !rc.flagged){
+						rc.isRevealed = true;
+						this.floodFill(rc);
+					}
+				}
+				
+				
+				if(cell.y - 1 >= 0){//TOP //TOP CHECKING THE TOP NEIGHBORING CELL BY SUBSTRACTING ONE (FROM TOP TO BOTTOM)
+					const tc = this.mineField[cell.y - 1][cell.x];
+					if(!tc.isRevealed && tc.neighbouringMineCount == 0 && !tc.flagged){
+						tc.isRevealed = true;
+						this.floodFill(tc);
+					}
+				}
+				
+				if(cell.y + 1 < this.rows){//BOTTOM //BOTTOM CHECKING THE BOTTOM NEIGHBORING CELL BY ADDING ONE  
+					const bc = this.mineField[cell.y + 1][cell.x];
+					if(!bc.isRevealed && bc.neighbouringMineCount == 0 && !bc.flagged){
+						bc.isRevealed = true;
+						this.floodFill(bc);
+					}
+				}
+				
+			}
+		}
+	}
+	
+	placeMines(){
+    //SETTING THE MINE AROUND THE CANVAS RANDOMDLY
+		let minesLeft = this.mineCount;
+		if(minesLeft > 0){
+			for(let i = 0; i < minesLeft; i++){
+				let x = Math.floor(Math.random() * this.cols);
+				let y = Math.floor(Math.random() * this.rows);
+				const cell = this.mineField[y][x];
+				if(cell.isMine) return;//IT WILL NOT ADD THE MINE IN A CELL TAKEN
+				else if(!cell.isMine) cell.isMine = true;
+				if(cell.isMine)cell.deactivated = false;
+				minesLeft--;
+				console.log(`mine in row ${y} and col ${x}`);
+			}
+		}
+	}
+	
+	getCellByXandY(yPos, xPos){
+    //GETTING THE EXACT COORDINATE OF THE MINE WE CLICKED ON EXPLAINED PREVIOUSLY
+		return this.mineField[Math.floor(yPos / this.cellSize)][Math.floor(xPos / this.cellSize)];
+	}
+	
+	gameOver(){
+    //IN CASE WE LOSE THE GAME IT WILL LET US KNOW WHERE THE MINE WERE BY LOOPING THROUGH THE MULTI DIMENSIONAL ARRAY REVEALING ALL THE CELLS
+		for(let y = 0; y < this.rows; y++){
+			for(let x = 0; x < this.cols; x++){
+				const cell = this.mineField[y][x];
+				if(!cell.isRevealed) cell.isRevealed = true;
+			}
+		}
+    //WE NEED TO REDRAW
+		this.draw();
+	}
+	
+	gameOverWin(){
+		for(let y = 0; y < this.rows; y++){
+			for(let x = 0; x < this.cols; x++){
+				const cell = this.mineField[y][x];
+				if(!cell.isRevealed) cell.isRevealed = true;
+				if(cell.isMine && !cell.deactivated) cell.deactivated = true;
+			}
+		}
+		this.draw();
+	}
+	
+	countNeighboringMines(){
+		for(let y = 0; y < this.rows; y++){
+			for(let x = 0; x < this.cols; x++){
+				const cell = this.mineField[y][x];
+				
+				if(cell.isMine)continue;
+				for(let yPos = 0; yPos < this.rows; yPos++){
+					for(let xPos = 0; xPos < this.cols; xPos++){
+						const c = this.mineField[yPos][xPos];
+						if(c == cell)continue;
+						if(c.x > cell.x + 1 //RIGHT
+						|| c.x < cell.x - 1 //LEFT
+						|| c.y > cell.y + 1 //TOP
+						|| c.y < cell.y - 1 //BOTTOM
+						) continue;
+						if(!c.isMine)continue;
+						cell.neighbouringMineCount++;
+					}
+				}
+			}
+		}
+	}
+	
+	draw(){
+		for(let y = 0; y < this.rows; y++){
+			for(let x = 0; x < this.cols; x++){
+				const cell = this.mineField[y][x];
+				
+				this.ctx.strokeStyle = '#000';
+				this.ctx.strokeRect(x * cell.size, y * cell.size, cell.size, cell.size);
+				
+				if(cell.isRevealed){
+					if(!cell.isMine){
+						this.ctx.fillStyle = '#fff';
+						this.ctx.fillRect(x * cell.size, y * cell.size, cell.size, cell.size);
+					}else{
+						this.ctx.fillStyle = (!cell.deactivated) ?'red' : '#fff';
+						this.ctx.fillRect(x * cell.size, y * cell.size, cell.size, cell.size);
+						this.ctx.drawImage(badBombImg, x * cell.size, y * cell.size, cell.size, cell.size);
+					}
+				}else{
+					if(!cell.flagged){
+						this.ctx.fillStyle = '#ccc';
+						this.ctx.fillRect(x * cell.size, y * cell.size, cell.size, cell.size);
+					}else{
+						this.ctx.fillStyle = 'lightblue';
+						this.ctx.fillRect(x * cell.size, y * cell.size, cell.size, cell.size);
+						this.ctx.drawImage(redFlagImg, x * cell.size + 5, y * cell.size + 5, cell.size/1.4, cell.size/1.4);
+					}
+				}
+				
+				if(cell.isRevealed && cell.neighbouringMineCount > 0){
+				  if(cell.neighbouringMineCount == 1){
+					  this.ctx.fillStyle = 'blue';
+				  }else if(cell.neighbouringMineCount == 2){
+					   this.ctx.fillStyle = 'red';
+				  }else if(cell.neighbouringMineCount == 3){
+					  this.ctx.fillStyle = 'green';
+				  }
+				  this.ctx.textAlign = 'center';
+				  this.ctx.textBaseLine = 'middle';
+				  this.ctx.font = '27px Arial';
+				  this.ctx.fillText(cell.neighbouringMineCount, cell.x*this.cellSize +this.cellSize /2, cell.y*this.cellSize +this.cellSize /1.5);
+				}
+			}
+		}
+	}
+}
+
+class Cell{
+	constructor(x, y, size){
+		this.x = x; 
+		this.y = y;
+		this.size = size;
+		this.isRevealed = false;
+		this.isMine = false;
+		this.flagged = false;
+		this.deactivated = null;
+		this.neighbouringMineCount = 0;
+	}	
+}
+
+let mineSweeper = new Minesweeper(app, 600, 600,150, 40);
+
+
+
+  </script>
+</html>
